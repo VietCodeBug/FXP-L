@@ -32,11 +32,11 @@ const Dashboard = () => {
     try {
       // Automatic Mixed Content + CORS Proxy Handler
       // If we are on an HTTPS site but requesting an HTTP API, browsers block it natively.
-      // We use our dedicated Cloudflare Pages Function proxy (/proxy)
-      // to avoid rate limits from public cors proxies like corsproxy.io
+      // We use our dedicated Cloudflare/Vercel Serverless Function proxy (/api/proxy)
+      // to avoid rate limits and securely fetch HTTP APIs over an HTTPS website.
       let finalUrl = apiUrl;
       if (apiUrl.startsWith('http://') && window.location.protocol === 'https:') {
-        finalUrl = `/proxy?url=${encodeURIComponent(apiUrl)}`;
+        finalUrl = `/api/proxy?url=${encodeURIComponent(apiUrl)}`;
       }
 
       const response = await fetch(finalUrl);
