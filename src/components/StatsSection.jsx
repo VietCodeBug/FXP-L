@@ -1,71 +1,53 @@
 import React from 'react';
+import {
+  formatCurrency,
+  formatLots,
+  formatNumber,
+  formatPercent,
+  getValueTone,
+} from './dashboardMetrics';
 
-const StatsSection = ({ resultData, loading }) => {
-  const { win = 0, loss = 0, winrate = 0, positions = 0 } = resultData || {};
+const toneText = {
+  positive: 'text-emerald-300',
+  negative: 'text-rose-300',
+  neutral: 'text-slate-100',
+};
 
+const Item = ({ label, value, tone = 'neutral' }) => (
+  <div className="rounded-2xl border border-white/8 bg-white/[0.03] px-4 py-3">
+    <div className="text-xs uppercase tracking-[0.2em] text-slate-500">{label}</div>
+    <div className={`mt-2 text-lg font-display font-semibold ${toneText[tone] || toneText.neutral}`}>
+      {value}
+    </div>
+  </div>
+);
+
+const StatsSection = ({ snapshot }) => {
   return (
-    <div className="bg-[#181A20] rounded-lg p-5 border border-[#2B3139] h-full flex flex-col">
-      
-      <div className="flex justify-between items-center border-b border-[#2B3139] pb-3 mb-4">
-        <h3 className="text-[#EAECEF] font-semibold text-base">Overview Stats</h3>
-        <div className="text-xs text-[#EAECEF] bg-[#2B3139] px-2 py-1 rounded">
-          {loading ? '-' : `${positions} Positions`}
+    <div className="grid gap-4 lg:grid-cols-2">
+      <div className="panel-surface rounded-[24px] border border-white/8 p-5">
+        <div className="mb-4 text-sm font-semibold text-white">Trong ngày</div>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Item label="Lệnh hôm nay" value={snapshot ? formatNumber(snapshot.tradesToday) : '--'} />
+          <Item label="Thắng hôm nay" value={snapshot ? formatNumber(snapshot.winToday) : '--'} tone="positive" />
+          <Item label="Thua hôm nay" value={snapshot ? formatNumber(snapshot.lossToday) : '--'} tone="negative" />
+          <Item label="Tỉ lệ thắng ngày" value={snapshot ? formatPercent(snapshot.winRateToday) : '--'} tone={getValueTone((snapshot?.winRateToday ?? 0) - 50)} />
+          <Item label="Khối lượng hôm nay" value={snapshot ? formatLots(snapshot.volumeToday) : '--'} />
+          <Item label="Lãi hôm nay" value={snapshot ? formatCurrency(snapshot.profitToday, { signed: true }) : '--'} tone={getValueTone(snapshot?.profitToday)} />
         </div>
       </div>
 
-      <div className="flex flex-col gap-5 flex-grow">
-        <div className="flex justify-between items-center">
-          <span className="text-[#848E9C] text-sm">Winning Trades</span>
-          {loading ? (
-            <div className="h-5 w-16 bg-[#2B3139] animate-pulse rounded"></div>
-          ) : (
-            <span className="text-[#0ECB81] font-mono font-medium text-lg">
-              {Number(win || 0).toLocaleString('en-US')}
-            </span>
-          )}
-        </div>
-
-        <div className="flex justify-between items-center">
-          <span className="text-[#848E9C] text-sm">Losing Trades</span>
-          {loading ? (
-            <div className="h-5 w-16 bg-[#2B3139] animate-pulse rounded"></div>
-          ) : (
-            <span className="text-[#F6465D] font-mono font-medium text-lg">
-              {Number(loss || 0).toLocaleString('en-US')}
-            </span>
-          )}
-        </div>
-
-        <div className="flex justify-between items-center">
-          <span className="text-[#848E9C] text-sm">Win Rate</span>
-          {loading ? (
-            <div className="h-5 w-16 bg-[#2B3139] animate-pulse rounded"></div>
-          ) : (
-            <div className="flex font-mono font-medium text-lg text-[#FCD535]">
-              {Number(winrate || 0).toFixed(2)}%
-            </div>
-          )}
-        </div>
-
-        {/* Minimal Progress Bar without animations */}
-        <div className="mt-auto pt-4 border-t border-[#2B3139]">
-          <div className="flex justify-between text-xs text-[#848E9C] mb-2 font-mono">
-            <span className="text-[#0ECB81]">Win</span>
-            <span className="text-[#F6465D]">Loss</span>
-          </div>
-          <div className="w-full bg-[#2B3139] h-2 flex overflow-hidden">
-            <div 
-              className="bg-[#0ECB81]"
-              style={{ width: `${loading ? 50 : winrate}%` }}
-            ></div>
-            <div 
-              className="bg-[#F6465D]"
-              style={{ width: `${loading ? 50 : 100 - winrate}%` }}
-            ></div>
-          </div>
+      <div className="panel-surface rounded-[24px] border border-white/8 p-5">
+        <div className="mb-4 text-sm font-semibold text-white">Tài khoản</div>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Item label="Margin" value={snapshot ? formatCurrency(snapshot.margin) : '--'} />
+          <Item label="Margin tự do" value={snapshot ? formatCurrency(snapshot.freeMargin, { signed: true }) : '--'} tone={getValueTone(snapshot?.freeMargin)} />
+          <Item label="Mức ký quỹ" value={snapshot ? formatPercent(snapshot.marginLevel) : '--'} tone={getValueTone((snapshot?.marginLevel ?? 0) - 100)} />
+          <Item label="Lãi nổi" value={snapshot ? formatCurrency(snapshot.floating, { signed: true }) : '--'} tone={getValueTone(snapshot?.floating)} />
+          <Item label="Lợi nhuận tổng" value={snapshot ? formatCurrency(snapshot.profitTotal, { signed: true }) : '--'} tone={getValueTone(snapshot?.profitTotal)} />
+          <Item label="Khối lượng tổng" value={snapshot ? formatLots(snapshot.volumeTotal) : '--'} />
         </div>
       </div>
-      
     </div>
   );
 };

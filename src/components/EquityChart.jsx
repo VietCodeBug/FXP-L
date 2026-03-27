@@ -1,70 +1,117 @@
 import React from 'react';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import {
+  Area,
+  AreaChart,
+  CartesianGrid,
+  Line,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from 'recharts';
+import { formatCurrency } from './dashboardMetrics';
 
-const CustomTooltip = ({ active, payload, label }) => {
-  if (active && payload && payload.length) {
-    return (
-      <div className="bg-[#181A20] border border-[#2B3139] p-3 shadow-lg">
-        <p className="text-[#848E9C] text-xs font-mono mb-1">{label}</p>
-        <p className="text-[#EAECEF] font-mono text-sm">
-          Equity: ${parseFloat(payload[0].value).toFixed(2)}
-        </p>
-      </div>
-    );
+const TooltipBox = ({ active, payload }) => {
+  if (!active || !payload?.length) {
+    return null;
   }
-  return null;
+
+  const point = payload[0].payload;
+
+  return (
+    <div className="rounded-2xl border border-white/10 bg-[#0c1118]/95 p-4 shadow-[0_20px_60px_rgba(0,0,0,0.35)]">
+      <div className="mb-3 text-xs uppercase tracking-[0.2em] text-slate-500">{point.time}</div>
+      <div className="space-y-2 text-sm">
+        <div className="flex items-center justify-between gap-4">
+          <span className="text-slate-400">Số dư</span>
+          <span className="font-semibold text-blue-300">{formatCurrency(point.balance)}</span>
+        </div>
+        <div className="flex items-center justify-between gap-4">
+          <span className="text-slate-400">Vốn thực</span>
+          <span className="font-semibold text-violet-300">{formatCurrency(point.equity)}</span>
+        </div>
+        <div className="flex items-center justify-between gap-4">
+          <span className="text-slate-400">Lãi nổi</span>
+          <span className={`font-semibold ${point.floating >= 0 ? 'text-emerald-300' : 'text-rose-300'}`}>
+            {formatCurrency(point.floating, { signed: true })}
+          </span>
+        </div>
+      </div>
+    </div>
+  );
 };
 
 const EquityChart = ({ data }) => {
   return (
-    <div className="bg-[#181A20] rounded-lg p-5 border border-[#2B3139] w-full h-[400px]">
-      
-      <div className="flex justify-between items-center border-b border-[#2B3139] pb-3 mb-4">
-        <h3 className="text-[#EAECEF] font-semibold text-base">Live Equity Curve</h3>
-        <div className="flex items-center gap-2">
-          <div className="w-2 h-2 rounded-full bg-[#0ECB81]"></div>
-          <span className="text-xs text-[#0ECB81] uppercase tracking-wider font-semibold">Real-time</span>
+    <div className="panel-surface rounded-[24px] border border-white/8 p-5">
+      <div className="mb-4 flex items-center justify-between">
+        <div className="text-sm font-semibold text-white">Số dư / Vốn thực realtime</div>
+        <div className="flex items-center gap-4 text-xs text-slate-400">
+          <span className="flex items-center gap-2">
+            <span className="h-2.5 w-2.5 rounded-full bg-blue-400" />
+            Số dư
+          </span>
+          <span className="flex items-center gap-2">
+            <span className="h-2.5 w-2.5 rounded-full bg-violet-400" />
+            Vốn thực
+          </span>
         </div>
       </div>
-      
-      <div className="h-[300px] w-full">
-        {data.length === 0 ? (
-          <div className="w-full h-full flex flex-col items-center justify-center text-[#848E9C]">
-            <span className="text-sm">Waiting for live tick...</span>
-          </div>
-        ) : (
+
+      <div className="h-[420px]">
+        {data.length ? (
           <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={data} margin={{ top: 5, right: 5, left: 0, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#2B3139" vertical={false} />
-              <XAxis 
-                dataKey="time" 
-                stroke="#848E9C" 
-                fontSize={11} 
+            <AreaChart data={data} margin={{ top: 10, right: 6, left: -10, bottom: 0 }}>
+              <defs>
+                <linearGradient id="balanceFill" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#3b82f6" stopOpacity={0.25} />
+                  <stop offset="100%" stopColor="#3b82f6" stopOpacity={0.02} />
+                </linearGradient>
+                <linearGradient id="equityFill" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#a855f7" stopOpacity={0.3} />
+                  <stop offset="100%" stopColor="#a855f7" stopOpacity={0.04} />
+                </linearGradient>
+              </defs>
+
+              <CartesianGrid stroke="rgba(148,163,184,0.12)" strokeDasharray="3 6" vertical={false} />
+              <XAxis dataKey="time" stroke="#64748b" fontSize={11} tickLine={false} axisLine={false} minTickGap={22} />
+              <YAxis
+                stroke="#64748b"
+                fontSize={11}
                 tickLine={false}
-                axisLine={{ stroke: '#2B3139' }}
-                dy={10}
+                axisLine={false}
+                width={68}
+                tickFormatter={(value) => formatCurrency(value, { compact: true })}
               />
-              <YAxis 
-                stroke="#848E9C" 
-                fontSize={11} 
-                tickLine={false}
-                axisLine={{ stroke: '#2B3139' }}
-                tickFormatter={(value) => `$${value}`}
-                domain={['auto', 'auto']}
-                dx={-10}
-              />
-              <Tooltip content={<CustomTooltip />} cursor={{ stroke: '#474D57', strokeWidth: 1 }} />
-              <Line 
-                type="stepAfter" 
-                dataKey="equity" 
-                stroke="#FCD535" 
-                strokeWidth={2}
+              <Tooltip content={<TooltipBox />} cursor={{ stroke: 'rgba(168,85,247,0.35)', strokeWidth: 1 }} />
+
+              <Area type="monotone" dataKey="balance" stroke="transparent" fill="url(#balanceFill)" isAnimationActive={false} />
+              <Area type="monotone" dataKey="equity" stroke="transparent" fill="url(#equityFill)" isAnimationActive={false} />
+
+              <Line
+                type="monotone"
+                dataKey="balance"
+                stroke="#3b82f6"
+                strokeWidth={2.2}
                 dot={false}
-                activeDot={{ r: 4, fill: '#FCD535', stroke: '#181A20', strokeWidth: 2 }}
+                activeDot={{ r: 4, fill: '#3b82f6', stroke: '#0c1118', strokeWidth: 2 }}
                 isAnimationActive={false}
               />
-            </LineChart>
+              <Line
+                type="monotone"
+                dataKey="equity"
+                stroke="#a855f7"
+                strokeWidth={2.6}
+                dot={false}
+                activeDot={{ r: 4, fill: '#a855f7', stroke: '#0c1118', strokeWidth: 2 }}
+                isAnimationActive={false}
+              />
+            </AreaChart>
           </ResponsiveContainer>
+        ) : (
+          <div className="flex h-full items-center justify-center rounded-2xl border border-dashed border-white/10 text-sm text-slate-500">
+            Đang chờ dữ liệu...
+          </div>
         )}
       </div>
     </div>

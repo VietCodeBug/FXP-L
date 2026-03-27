@@ -1,181 +1,334 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useEffect, useEffectEvent, useState } from 'react';
 import StatCard from './StatCard';
-import StatsSection from './StatsSection';
 import EquityChart from './EquityChart';
+import TradeDistribution from './TradeDistribution';
+import PositionsTable from './PositionsTable';
+import StatsSection from './StatsSection';
+import {
+  POLLING_INTERVAL_MS,
+  appendHistory,
+  createSnapshot,
+  deriveHistoryStats,
+  formatClock,
+  formatCurrency,
+  formatNumber,
+  formatPercent,
+  getFreshness,
+  getValueTone,
+} from './dashboardMetrics';
+
+const DEFAULT_API_URL = '/api/dashboard';
+const LEGACY_DEFAULT_API_URLS = new Set([
+  'http://35.239.159.234:8000/dashboard',
+  'https://35.239.159.234:8000/dashboard',
+]);
+
+const normalizeApiUrl = (value) => {
+  const trimmedValue = value?.trim();
+
+  if (!trimmedValue || LEGACY_DEFAULT_API_URLS.has(trimmedValue)) {
+    return DEFAULT_API_URL;
+  }
+
+  return trimmedValue;
+};
+
+const resolveRequestUrl = (rawApiUrl) => {
+  const normalizedUrl = normalizeApiUrl(rawApiUrl);
+
+  try {
+    const parsedUrl = new URL(normalizedUrl, window.location.origin);
+
+    if (parsedUrl.origin === window.location.origin) {
+      return `${parsedUrl.pathname}${parsedUrl.search}`;
+    }
+
+    return `/api/proxy?url=${encodeURIComponent(parsedUrl.toString())}`;
+  } catch {
+    return normalizedUrl;
+  }
+};
+
+const parseErrorResponse = async (response) => {
+  let message = `API error: ${response.status}`;
+
+  try {
+    const responseType = response.headers.get('content-type') || '';
+
+    if (responseType.includes('application/json')) {
+      const responseBody = await response.json();
+      message = responseBody.error || message;
+    } else {
+      const responseBody = await response.text();
+      if (responseBody) {
+        message = responseBody;
+      }
+    }
+  } catch {
+    // Keep status fallback.
+  }
+
+  return message;
+};
 
 const Dashboard = () => {
-  const [data, setData] = useState(null);
+  const [snapshot, setSnapshot] = useState(null);
+  const [history, setHistory] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [chartData, setChartData] = useState([]);
-  
-  // API URL State
-  const [apiUrl, setApiUrl] = useState(() => {
-    return localStorage.getItem('trading_api_url') || 'http://35.239.159.234:8000/dashboard';
-  });
-  const [isEditingUrl, setIsEditingUrl] = useState(false);
+  const [now, setNow] = useState(Date.now());
+  const [apiUrl, setApiUrl] = useState(() => normalizeApiUrl(localStorage.getItem('trading_api_url')));
+  const [editing, setEditing] = useState(false);
   const [tempUrl, setTempUrl] = useState(apiUrl);
 
-  const handleSaveUrl = (e) => {
-    e.preventDefault();
-    if (tempUrl.trim()) {
-      setApiUrl(tempUrl.trim());
-      localStorage.setItem('trading_api_url', tempUrl.trim());
-      setIsEditingUrl(false);
-      setChartData([]); // Reset chart data when changing URL
-      setLoading(true);
-      setData(null);
-    }
-  };
-
-  const fetchData = useCallback(async () => {
-    try {
-      // Automatic Mixed Content + CORS Proxy Handler
-      // If we are on an HTTPS site but requesting an HTTP API, browsers block it natively.
-      // We use our dedicated Cloudflare/Vercel Serverless Function proxy (/api/proxy)
-      // to avoid rate limits and securely fetch HTTP APIs over an HTTPS website.
-      let finalUrl = apiUrl;
-      if (apiUrl.startsWith('http://') && window.location.protocol === 'https:') {
-        finalUrl = `/api/proxy?url=${encodeURIComponent(apiUrl)}`;
-      }
-
-      const response = await fetch(finalUrl);
-      if (!response.ok) {
-        throw new Error(`API error: ${response.status}`);
-      }
-      const jsonData = await response.json();
-      
-      setData(jsonData);
-      setError(null);
-      
-      const timeStr = new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
-      
-      setChartData(prevData => {
-        const newDataPoint = {
-          time: timeStr,
-          equity: jsonData.equity,
-          balance: jsonData.balance
-        };
-        const updatedData = [...prevData, newDataPoint];
-        if (updatedData.length > 50) {
-          updatedData.shift();
-        }
-        return updatedData;
-      });
-
-    } catch (err) {
-      console.error(err);
-      setError(err.message === 'Failed to fetch' ? 'Connection Error / CORS / Mixed Content' : 'Connection lost');
-    } finally {
-      if (loading) setLoading(false); // only toggle once initially
-    }
-  }, [apiUrl]); // Recreate if apiUrl changes
+  useEffect(() => {
+    setTempUrl(apiUrl);
+  }, [apiUrl]);
 
   useEffect(() => {
-    setLoading(true); // Reset loading when URL changes
-    fetchData();
-    const intervalId = setInterval(fetchData, 3000);
-    return () => clearInterval(intervalId);
-  }, [fetchData]);
+    const timerId = setInterval(() => {
+      setNow(Date.now());
+    }, 1000);
+
+    return () => clearInterval(timerId);
+  }, []);
+
+  const fetchData = useEffectEvent(async (signal) => {
+    try {
+      const response = await fetch(resolveRequestUrl(apiUrl), {
+        signal,
+        cache: 'no-store',
+      });
+
+      if (!response.ok) {
+        throw new Error(await parseErrorResponse(response));
+      }
+
+      const payload = await response.json();
+      const nextSnapshot = createSnapshot(payload);
+
+      setSnapshot(nextSnapshot);
+      setHistory((current) => appendHistory(current, nextSnapshot));
+      setError(null);
+    } catch (err) {
+      if (err.name === 'AbortError') {
+        return;
+      }
+
+      console.error(err);
+      setError(err.message === 'Failed to fetch' ? 'Không lấy được dữ liệu' : err.message);
+    } finally {
+      setLoading(false);
+    }
+  });
+
+  useEffect(() => {
+    setLoading(true);
+    setSnapshot(null);
+    setHistory([]);
+    setError(null);
+
+    const controllers = new Set();
+
+    const runFetch = () => {
+      const controller = new AbortController();
+      controllers.add(controller);
+
+      fetchData(controller.signal).finally(() => {
+        controllers.delete(controller);
+      });
+    };
+
+    runFetch();
+    const intervalId = setInterval(runFetch, POLLING_INTERVAL_MS);
+
+    return () => {
+      clearInterval(intervalId);
+      controllers.forEach((controller) => controller.abort());
+      controllers.clear();
+    };
+  }, [apiUrl]);
+
+  const saveUrl = (event) => {
+    event.preventDefault();
+    const nextApiUrl = normalizeApiUrl(tempUrl);
+    setApiUrl(nextApiUrl);
+    setTempUrl(nextApiUrl);
+    localStorage.setItem('trading_api_url', nextApiUrl);
+    setEditing(false);
+  };
+
+  const freshness = getFreshness(snapshot, now);
+  const historyStats = deriveHistoryStats(history);
+  const floatingTone = getValueTone(snapshot?.floating);
+  const profitTodayTone = getValueTone(snapshot?.profitToday);
+  const syncClass = error
+    ? 'border-rose-400/20 bg-rose-400/10 text-rose-200'
+    : freshness.state === 'stale'
+      ? 'border-amber-400/20 bg-amber-400/10 text-amber-200'
+      : 'border-emerald-400/20 bg-emerald-400/10 text-emerald-200';
 
   return (
-    <div className="min-h-screen bg-[#0B0E11] p-4 font-sans text-[#EAECEF]">
-      <div className="max-w-7xl mx-auto">
-        
-        {/* Header Minimalist */}
-        <header className="mb-6 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-[#2B3139] pb-4">
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 bg-[#FCD535] rounded flex items-center justify-center">
-              <span className="text-[#0B0E11] font-bold text-lg leading-none">T</span>
-            </div>
-            <div>
-              <h1 className="text-xl font-semibold tracking-tight">Trade Terminal</h1>
+    <div className="dashboard-shell min-h-screen px-4 py-5 text-slate-100 sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-[1500px]">
+        <div className="mb-5 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <h1 className="text-[2rem] font-display font-semibold tracking-[-0.05em] text-white">
+              Bảng thống kê realtime
+            </h1>
+            <div className="mt-3 flex flex-wrap items-center gap-2 text-sm">
+              <span className={`rounded-full border px-3 py-1 font-medium ${syncClass}`}>
+                {error ? 'Mất kết nối' : 'Đang chạy'}
+              </span>
+              <span className="rounded-full border border-white/8 bg-white/[0.04] px-3 py-1 text-slate-300">
+                Cập nhật: {snapshot ? formatClock(snapshot.updatedAt) : '--'}
+              </span>
+              <span className="rounded-full border border-white/8 bg-white/[0.04] px-3 py-1 text-slate-300">
+                Trễ: {snapshot ? freshness.ageLabel : '--'}
+              </span>
+              <span className="rounded-full border border-white/8 bg-white/[0.04] px-3 py-1 text-slate-300">
+                Nhịp: {(POLLING_INTERVAL_MS / 1000).toFixed(1)}s
+              </span>
             </div>
           </div>
-          
-          <div className="flex flex-col items-end gap-2 w-full md:w-auto">
-            {/* Connection Status Row */}
-            <div className="flex items-center gap-4">
-              {error && <div className="text-[#F6465D] text-xs bg-[#F6465D]/10 px-2 py-1 rounded border border-[#F6465D]/20 truncate max-w-[200px]">{error}</div>}
-              <div className={`px-2 py-1 rounded text-xs font-medium border ${loading ? 'border-[#FCD535] text-[#FCD535]' : (error ? 'border-[#F6465D] text-[#F6465D]' : 'border-[#0ECB81] text-[#0ECB81]')}`}>
-                {loading ? 'Connecting...' : (error ? 'Disconnected' : 'Connected API')}
+
+          <div className="w-full max-w-xl lg:w-[430px]">
+            {editing ? (
+              <form onSubmit={saveUrl} className="flex flex-col gap-2 sm:flex-row">
+                <input
+                  type="text"
+                  value={tempUrl}
+                  onChange={(event) => setTempUrl(event.target.value)}
+                  className="min-w-0 flex-1 rounded-2xl border border-white/10 bg-[#10161f] px-4 py-3 text-sm text-white outline-none focus:border-blue-400/40"
+                  autoFocus
+                />
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setTempUrl(apiUrl);
+                      setEditing(false);
+                    }}
+                    className="rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-slate-200"
+                  >
+                    Hủy
+                  </button>
+                  <button
+                    type="submit"
+                    className="rounded-2xl border border-blue-400/20 bg-blue-400/12 px-4 py-3 text-sm font-medium text-blue-200"
+                  >
+                    Lưu
+                  </button>
+                </div>
+              </form>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setEditing(true)}
+                className="w-full truncate rounded-2xl border border-white/8 bg-white/[0.04] px-4 py-3 text-left text-sm text-slate-300"
+                title={apiUrl}
+              >
+                Nguồn: {apiUrl}
+              </button>
+            )}
+          </div>
+        </div>
+
+        {error ? (
+          <div className="mb-5 rounded-2xl border border-rose-400/15 bg-rose-400/10 px-4 py-3 text-sm text-rose-100">
+            {error}
+          </div>
+        ) : null}
+
+        <div className="mb-5 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <StatCard
+            title="Số dư"
+            value={snapshot ? formatCurrency(snapshot.balance) : '--'}
+            subtitle={history.length ? `Phiên: ${formatCurrency(historyStats.sessionEquityChange, { signed: true })}` : '--'}
+            tone="blue"
+            icon="wallet"
+            loading={loading && !snapshot}
+          />
+          <StatCard
+            title="Vốn thực"
+            value={snapshot ? formatCurrency(snapshot.equity) : '--'}
+            subtitle={snapshot ? `Lãi nổi: ${formatCurrency(snapshot.floating, { signed: true })}` : '--'}
+            tone="purple"
+            icon="pulse"
+            loading={loading && !snapshot}
+          />
+          <StatCard
+            title="Lãi hôm nay"
+            value={snapshot ? formatCurrency(snapshot.profitToday, { signed: true }) : '--'}
+            subtitle={snapshot ? `${formatNumber(snapshot.tradesToday)} lệnh` : '--'}
+            tone={profitTodayTone === 'negative' ? 'red' : profitTodayTone === 'positive' ? 'green' : 'orange'}
+            icon="arrow"
+            loading={loading && !snapshot}
+          />
+          <StatCard
+            title="Tỉ lệ thắng"
+            value={snapshot ? formatPercent(snapshot.winRateTotal) : '--'}
+            subtitle={snapshot ? `Thắng ${formatNumber(snapshot.winTotal)} / Thua ${formatNumber(snapshot.lossTotal)}` : '--'}
+            tone="orange"
+            icon="percent"
+            loading={loading && !snapshot}
+          />
+        </div>
+
+        <div className="mb-5 grid gap-4 xl:grid-cols-[1.9fr_1fr]">
+          <EquityChart data={history} />
+          <TradeDistribution snapshot={snapshot} />
+        </div>
+
+        <div className="mb-5">
+          <StatsSection snapshot={snapshot} />
+        </div>
+
+        <div className="grid gap-4 xl:grid-cols-[1.5fr_1fr]">
+          <PositionsTable snapshot={snapshot} />
+
+          <div className="panel-surface rounded-[24px] border border-white/8 p-5">
+            <div className="mb-4 text-sm font-semibold text-white">Chi tiết nhanh</div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="rounded-2xl border border-white/8 bg-white/[0.03] px-4 py-3">
+                <div className="text-xs uppercase tracking-[0.2em] text-slate-500">Lãi nổi</div>
+                <div className={`mt-2 text-lg font-display font-semibold ${floatingTone === 'positive' ? 'text-emerald-300' : floatingTone === 'negative' ? 'text-rose-300' : 'text-slate-100'}`}>
+                  {snapshot ? formatCurrency(snapshot.floating, { signed: true }) : '--'}
+                </div>
+              </div>
+              <div className="rounded-2xl border border-white/8 bg-white/[0.03] px-4 py-3">
+                <div className="text-xs uppercase tracking-[0.2em] text-slate-500">Biến động phiên</div>
+                <div className={`mt-2 text-lg font-display font-semibold ${historyStats.sessionFloatingChange >= 0 ? 'text-emerald-300' : 'text-rose-300'}`}>
+                  {history.length ? formatCurrency(historyStats.sessionFloatingChange, { signed: true }) : '--'}
+                </div>
+              </div>
+              <div className="rounded-2xl border border-white/8 bg-white/[0.03] px-4 py-3">
+                <div className="text-xs uppercase tracking-[0.2em] text-slate-500">Biên độ equity</div>
+                <div className="mt-2 text-lg font-display font-semibold text-slate-100">
+                  {history.length ? formatCurrency(historyStats.observedRange) : '--'}
+                </div>
+              </div>
+              <div className="rounded-2xl border border-white/8 bg-white/[0.03] px-4 py-3">
+                <div className="text-xs uppercase tracking-[0.2em] text-slate-500">Drawdown</div>
+                <div className={`mt-2 text-lg font-display font-semibold ${historyStats.maxDrawdownPct < 0 ? 'text-rose-300' : 'text-slate-100'}`}>
+                  {history.length ? formatPercent(historyStats.maxDrawdownPct, { signed: true }) : '--'}
+                </div>
+              </div>
+              <div className="rounded-2xl border border-white/8 bg-white/[0.03] px-4 py-3">
+                <div className="text-xs uppercase tracking-[0.2em] text-slate-500">Vị thế mua</div>
+                <div className="mt-2 text-lg font-display font-semibold text-blue-300">
+                  {snapshot ? formatNumber(snapshot.buyCount) : '--'}
+                </div>
+              </div>
+              <div className="rounded-2xl border border-white/8 bg-white/[0.03] px-4 py-3">
+                <div className="text-xs uppercase tracking-[0.2em] text-slate-500">Vị thế bán</div>
+                <div className="mt-2 text-lg font-display font-semibold text-orange-300">
+                  {snapshot ? formatNumber(snapshot.sellCount) : '--'}
+                </div>
               </div>
             </div>
-
-            {/* API URL Config Row */}
-            <div className="w-full relative">
-              {isEditingUrl ? (
-                <form onSubmit={handleSaveUrl} className="flex flex-col sm:flex-row gap-2 w-full sm:w-[450px]">
-                  <input 
-                    type="text" 
-                    value={tempUrl}
-                    onChange={(e) => setTempUrl(e.target.value)}
-                    className="flex-grow bg-[#181A20] border border-[#2B3139] text-[#EAECEF] text-xs px-3 py-1.5 rounded focus:outline-none focus:border-[#FCD535] transition-colors"
-                    placeholder="Enter Custom API URL..."
-                    autoFocus
-                  />
-                  <div className="flex gap-2">
-                    <button type="button" onClick={() => setIsEditingUrl(false)} className="px-3 py-1.5 bg-[#2B3139] hover:bg-[#474D57] text-white text-xs rounded transition-colors">Cancel</button>
-                    <button type="submit" className="px-3 py-1.5 bg-[#FCD535] hover:bg-[#F0B90B] text-[#0B0E11] font-semibold text-xs rounded transition-colors">Apply</button>
-                  </div>
-                </form>
-              ) : (
-                <div 
-                  className="flex items-center gap-2 px-3 py-1.5 bg-[#181A20] border border-[#2B3139] rounded cursor-pointer hover:border-[#474D57] transition-colors group w-full sm:w-auto overflow-hidden"
-                  onClick={() => setIsEditingUrl(true)}
-                  title="Click to edit API endpoint"
-                >
-                  <span className="text-[#848E9C] text-xs shrink-0 font-mono">ENDPOINT:</span>
-                  <span className="text-[#EAECEF] text-xs truncate max-w-[300px] font-mono">{apiUrl}</span>
-                  <svg xmlns="http://www.w3.org/2000/svg" className="w-3 h-3 text-[#848E9C] group-hover:text-[#FCD535] ml-auto shrink-0 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-                  </svg>
-                </div>
-              )}
-            </div>
-            
-          </div>
-        </header>
-
-        {/* Top Cards Section */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-          <StatCard 
-            title="Total Balance" 
-            value={data?.balance || 0} 
-            isCurrency={true} 
-            color="white"
-            loading={loading}
-          />
-          <StatCard 
-            title="Current Equity" 
-            value={data?.equity || 0} 
-            isCurrency={true} 
-            color="white"
-            loading={loading}
-          />
-          <StatCard 
-            title="Daily Profit" 
-            value={data?.profit_today || 0} 
-            isCurrency={true} 
-            color={data?.profit_today >= 0 ? 'green' : 'red'}
-            prefix={data?.profit_today > 0 ? '+' : ''}
-            loading={loading}
-          />
-        </div>
-
-        {/* Middle and Bottom Sections Grid */}
-        <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
-          {/* Middle Section: Stats */}
-          <div className="lg:col-span-1">
-            <StatsSection resultData={data} loading={loading} />
-          </div>
-          
-          {/* Bottom Section: Chart */}
-          <div className="lg:col-span-3">
-            <EquityChart data={chartData} />
           </div>
         </div>
-
       </div>
     </div>
   );
