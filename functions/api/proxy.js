@@ -13,22 +13,18 @@ export async function onRequestGet(context) {
   }
 
   try {
-    const res = await fetch(targetUrl);
+    const res = await fetch(targetUrl, {
+      method: "GET",
+      headers: {
+        'User-Agent': context.request.headers.get('user-agent') || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'application/json, text/plain, */*',
+      }
+    });
     
-    if (!res.ok) {
-      return new Response(JSON.stringify({ error: "Upstream API returned " + res.status }), {
-        status: res.status,
-        headers: {
-          "Content-Type": "application/json",
-          "Access-Control-Allow-Origin": "*"
-        }
-      });
-    }
-
     const data = await res.text();
     
     return new Response(data, {
-      status: 200,
+      status: res.status,
       headers: {
         "Content-Type": res.headers.get("Content-Type") || "application/json",
         "Access-Control-Allow-Origin": "*"
@@ -36,7 +32,7 @@ export async function onRequestGet(context) {
     });
 
   } catch (error) {
-    return new Response(JSON.stringify({ error: "Failed to connect to upstream API: " + error.message }), {
+    return new Response(JSON.stringify({ error: "Proxy Error: " + error.message }), {
       status: 502,
       headers: {
         "Content-Type": "application/json",
