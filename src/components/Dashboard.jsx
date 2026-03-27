@@ -30,7 +30,15 @@ const Dashboard = () => {
 
   const fetchData = useCallback(async () => {
     try {
-      const response = await fetch(apiUrl);
+      // Automatic Mixed Content + CORS Proxy Handler
+      // If we are on an HTTPS site but requesting an HTTP API, browsers block it natively.
+      // We use a free public proxy to tunnel the HTTP request securely.
+      let finalUrl = apiUrl;
+      if (apiUrl.startsWith('http://') && window.location.protocol === 'https:') {
+        finalUrl = `https://corsproxy.io/?${encodeURIComponent(apiUrl)}`;
+      }
+
+      const response = await fetch(finalUrl);
       if (!response.ok) {
         throw new Error(`API error: ${response.status}`);
       }
