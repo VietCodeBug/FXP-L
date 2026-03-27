@@ -2,6 +2,8 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 
+import { cloudflare } from "@cloudflare/vite-plugin";
+
 const upstreamOrigin = 'http://35.239.159.234.sslip.io:8000'
 
 const devApiProxyPlugin = () => ({
@@ -48,7 +50,7 @@ const devApiProxyPlugin = () => ({
 })
 
 export default defineConfig({
-  plugins: [react(), tailwindcss(), devApiProxyPlugin()],
+  plugins: [react(), tailwindcss(), devApiProxyPlugin(), cloudflare()],
   server: {
     port: 3000,
     open: true,
