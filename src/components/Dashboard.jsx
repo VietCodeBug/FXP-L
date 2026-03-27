@@ -32,10 +32,11 @@ const Dashboard = () => {
     try {
       // Automatic Mixed Content + CORS Proxy Handler
       // If we are on an HTTPS site but requesting an HTTP API, browsers block it natively.
-      // We use a free public proxy to tunnel the HTTP request securely.
+      // We use our dedicated Cloudflare Pages Function proxy (/proxy)
+      // to avoid rate limits from public cors proxies like corsproxy.io
       let finalUrl = apiUrl;
       if (apiUrl.startsWith('http://') && window.location.protocol === 'https:') {
-        finalUrl = `https://corsproxy.io/?${encodeURIComponent(apiUrl)}`;
+        finalUrl = `/proxy?url=${encodeURIComponent(apiUrl)}`;
       }
 
       const response = await fetch(finalUrl);
