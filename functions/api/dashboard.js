@@ -1,6 +1,6 @@
 export async function onRequestGet() {
   try {
-    const res = await fetch("http://35.239.159.234:8000/dashboard");
+    const res = await fetch("http://35.239.159.234.sslip.io:8000/dashboard");
     
     // Check if the upstream request was successful
     if (!res.ok) {

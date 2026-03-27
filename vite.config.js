@@ -2,7 +2,7 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 
-const upstreamOrigin = 'http://35.239.159.234:8000'
+const upstreamOrigin = 'http://35.239.159.234.sslip.io:8000'
 
 const devApiProxyPlugin = () => ({
   name: 'dev-api-proxy',

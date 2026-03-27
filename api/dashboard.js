@@ -1,4 +1,4 @@
-const UPSTREAM_URL = 'http://35.239.159.234:8000/dashboard';
+const UPSTREAM_URL = 'http://35.239.159.234.sslip.io:8000/dashboard';
 
 export default async function handler(req) {
   try {
