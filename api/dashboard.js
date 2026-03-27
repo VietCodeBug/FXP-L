@@ -1,7 +1,3 @@
-export const config = {
-  runtime: 'edge',
-};
-
 const UPSTREAM_URL = 'http://35.239.159.234:8000/dashboard';
 
 export default async function handler(req) {
